@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "paho-mqtt>=2.1.0",
+]
 authors = [{ name = "Jeff Culverhouse" }]
 license = { text = "MIT" }
 
@@ -24,3 +26,55 @@ dev = [
     "black>=25.9.0",
     "ruff>=0.14.2",
 ]
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+# Same as Black.
+line-length = 160
+indent-width = 4
+
+# Assume Python 3.14
+target-version = "py314"
+
+[tool.black]
+line-length = 160
+target-version = ["py313"]
+extend-exclude = '''
+/(
+  \.venv
+ |\.ruff_cache
+ |\.pytest_cache
+ |node_modules
+ |dist
+ |build
+)/
+'''
