@@ -44,17 +44,17 @@ class MqttHelper:
 
     def stat_t(self, device_id: str, category: str, *parts: str) -> str:
         if device_id == "service":
-            return  "/".join([self.service_slug: str, category: str, *map(str, parts)])
+            return  "/".join([self.service_slug, category, *map(str, parts)])
         return "/".join([self.service_slug, self.device_slug(device_id), category, *map(str, parts)])
 
     def avty_t(self, device_id: str, category: str="availability", *parts: str) -> str:
         if device_id == "service":
-            return  "/".join([self.service_slug: str, category: str, *map(str, parts)])
+            return  "/".join([self.service_slug, category, *map(str, parts)])
         return "/".join([self.service_slug, self.device_slug(device_id), category, *map(str, parts)])
 
-    def attr_t(self, device_id: str, category: str, *parts: str) -> str:
+    def attr_t(self, device_id: str, category: str="attributes", *parts: str) -> str:
         if device_id == "service":
-            return  "/".join([self.service_slug: str, category: str="attributes", *map(str, parts)])
+            return  "/".join([self.service_slug, category, *map(str, parts)])
         return "/".join(["homeassistant", self.device_slug(device_id), category, *map(str, parts)])
 
     def cmd_t(self, device_id: str, category: str="cmd", *parts: str) -> str:
