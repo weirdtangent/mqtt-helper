@@ -37,9 +37,8 @@ class MqttHelper:
             return "/".join([self.service_slug, *map(str, parts)])
         return "/".join([self.service_slug, component_type, self.device_slug(device_id), *map(str, parts)])
 
-    def disc_t(self, component: str, item: str="") -> str:
-        item = self.service_slug + f"_{item}" if item else ""
-        return "/".join(["homeassistant",component, item, "config"])
+    def disc_t(self, component: str, item: str) -> str:
+        return "/".join(["homeassistant",component, self.service_slug + "_" + item, "config"])
 
     def stat_t(self, device_id: str, category: str, *parts: str) -> str:
         if device_id == "service":
