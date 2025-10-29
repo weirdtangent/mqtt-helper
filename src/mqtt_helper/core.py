@@ -20,7 +20,7 @@ class MqttHelper:
     def svc_unique_id(self, entity: str="") -> str:
         return "_".join([self.service_slug, re.sub(r"[^a-zA-Z0-9]+", "", entity)])
     def dev_unique_id(self, device_id: str, entity: str="") -> str:
-        return "_".join([self.service_slug, self.device_slug(device_id), re.sub(r"[^a-zA-Z0-9]+", "", entity)])
+        return "_".join([self.device_slug(device_id), re.sub(r"[^a-zA-Z0-9]+", "", entity)])
 
     # Slug strings --------------------------------------------------------------------------------
 
@@ -38,27 +38,29 @@ class MqttHelper:
         return "/".join([self.service_slug, component_type, self.device_slug(device_id), *map(str, parts)])
 
     def disc_t(self, component: str, item: str) -> str:
+        if not component or not item:
+            raise ValueError("[disc_t] component and item have to be non-blank")
         return "/".join(["homeassistant",component, self.service_slug + "_" + item, "config"])
 
     def stat_t(self, device_id: str, category: str, *parts: str) -> str:
         if device_id == "service":
-            return  "/".join([self.service_slug, category, *map(str, parts)])
-        return "/".join([self.service_slug, category, self.device_slug(device_id), *map(str, parts)])
+            return  "/".join([self.service_slug: str, category: str, *map(str, parts)])
+        return "/".join([self.service_slug, self.device_slug(device_id), category, *map(str, parts)])
 
     def avty_t(self, device_id: str, category: str="availability", *parts: str) -> str:
         if device_id == "service":
-            return  "/".join([self.service_slug, category, *map(str, parts)])
-        return "/".join([self.service_slug, "devices", self.device_slug(device_id), category, *map(str, parts)])
+            return  "/".join([self.service_slug: str, category: str, *map(str, parts)])
+        return "/".join([self.service_slug, self.device_slug(device_id), category, *map(str, parts)])
 
     def attr_t(self, device_id: str, category: str, *parts: str) -> str:
         if device_id == "service":
-            return  "/".join([self.service_slug, category, *map(str, parts)])
-        return "/".join(["homeassistant", category, self.device_slug(device_id), *map(str, parts)])
+            return  "/".join([self.service_slug: str, category: str="attributes", *map(str, parts)])
+        return "/".join(["homeassistant", self.device_slug(device_id), category, *map(str, parts)])
 
-    def cmd_t(self, device_id, category, *parts: str) -> str:
+    def cmd_t(self, device_id: str, category: str="cmd", *parts: str) -> str:
         if device_id == "service":
             return  "/".join([self.service_slug, "service", category, "set"])
-        return "/".join([self.service_slug, category, self.device_slug(device_id), *map(str, parts), "set"])
+        return "/".join([self.service_slug, self.device_slug(device_id), category, *map(str, parts), "set"])
 
     # Misc helpers --------------------------------------------------------------------------------
 
