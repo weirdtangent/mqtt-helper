@@ -8,10 +8,17 @@ from typing import Sequence, Any, cast
 
 
 class MqttHelper:
-    def __init__(self, client: Client, service: str) -> None:
-        self.client = client
+    def __init__(self, service: str) -> None:
         self.service = service
         self.service_slug = re.sub(r"[^a-zA-Z0-9]+", "", service)
+
+        self.client: Client = None
+
+    def set_client(self, client: Client) -> None:
+        self.client = client
+
+    def clear_client(self) -> None:
+        self.client = None
 
     # IDs -----------------------------------------------------------------------------------------
 
@@ -102,13 +109,18 @@ class MqttHelper:
         return device
 
     def safe_publish(self, topic: str, payload: str | bool | int | dict | None, **kwargs: Any) -> None:
+        if not self.client:
+            raise SystemError("Mqtt client not connected, cannot publish")
+
         if not topic:
             raise ValueError("Cannot post to a blank topic")
+
         if isinstance(payload, dict) and ("component" in payload or "//////" in payload):
             self.logger.warning("Questionable payload includes 'component' or string of slashes - wont't send to HA")
             self.logger.warning(f"topic: {topic}")
             self.logger.warning(f"payload: {payload}")
             raise ValueError("Possible invalid payload. topic: {topic} payload: {payload}")
+
         try:
             if payload is None:
                 self.client.publish(topic, "null", **kwargs)
