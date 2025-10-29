@@ -18,3 +18,9 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["mqtt_helper*"]
+
+[dependency-groups]
+dev = [
+    "black>=25.9.0",
+    "ruff>=0.14.2",
+]
