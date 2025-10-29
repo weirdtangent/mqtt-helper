@@ -8,7 +8,7 @@ from typing import Sequence
 class MqttHelper:
     def __init__(self, service: str) -> None:
         self.service = service
-        self.service_slug = re.sub(r"[a-zA-Z0-9]+", "", service)
+        self.service_slug = re.sub(r"[^a-zA-Z0-9]+", "", service)
 
     # MQTT connections ----------------------------------------------------------------------------
 
