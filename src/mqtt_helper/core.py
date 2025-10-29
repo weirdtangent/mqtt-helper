@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Jeff Culverhouse
-from paho.mqtt.client import PayloadType
+from paho.mqtt.client import PayloadType, Client
 import random
 import re
 import string
@@ -8,7 +8,8 @@ from typing import Sequence, Any, cast
 
 
 class MqttHelper:
-    def __init__(self, service: str) -> None:
+    def __init__(self, client: Client, service: str) -> None:
+        self.client = client
         self.service = service
         self.service_slug = re.sub(r"[^a-zA-Z0-9]+", "", service)
 
@@ -110,8 +111,8 @@ class MqttHelper:
             raise ValueError("Possible invalid payload. topic: {topic} payload: {payload}")
         try:
             if payload is None:
-                self.mqttc.publish(topic, "null", **kwargs)
+                self.client.publish(topic, "null", **kwargs)
             else:
-                self.mqttc.publish(topic, cast(PayloadType, payload), **kwargs)
+                self.client.publish(topic, cast(PayloadType, payload), **kwargs)
         except Exception as e:
             self.logger.warning(f"MQTT publish failed for {topic} with {payload[:120] if isinstance(payload, str) else payload}: {e}")
