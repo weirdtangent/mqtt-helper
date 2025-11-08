@@ -63,7 +63,7 @@ class MqttHelper:
             raise ValueError("[disc_t] component and item have to be non-blank")
         return "/".join(["homeassistant", component, self.service_slug + "_" + item, "config"])
 
-    def stat_t(self, device_id: str, category: str, *parts: str) -> str:
+    def stat_t(self, device_id: str, category: str = "", *parts: str) -> str:
         if device_id == "service":
             return "/".join([self.service_slug, category, *map(str, parts)])
         return "/".join([self.service_slug, self.device_slug(device_id), category, *map(str, parts)])
@@ -93,28 +93,11 @@ class MqttHelper:
 
     # Misc helpers --------------------------------------------------------------------------------
 
-    def device_block(self, name: str, id: str, mfr: str, device_version: str = "", service_version: str = "") -> dict[str, Sequence[str]]:
-        device = {"name": name, "identifiers": [id], "manufacturer": mfr}
-
-        if device_version:
-            device["sw_version"] = device_version
-        if name == self.service_slug:
-            device.update(
-                {
-                    "suggested_area": "House",
-                    "manufacturer": "weirdTangent",
-                    "sw_version": service_version,
-                }
-            )
-        return device
-
     def safe_publish(self, topic: str, payload: str | bool | int | dict | None, **kwargs: Any) -> None:
         if not self.client:
             raise SystemError("Mqtt client not connected, cannot publish")
-
         if not topic:
             raise ValueError("Cannot post to a blank topic")
-
         if isinstance(payload, dict) and ("component" in payload or "//////" in payload):
             self.logger.warning("Questionable payload includes 'component' or string of slashes - wont't send to HA")
             self.logger.warning(f"topic: {topic}")
