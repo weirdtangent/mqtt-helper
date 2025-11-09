@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Jeff Culverhouse
+import logging
 from paho.mqtt.client import PayloadType, Client
 import random
 import re
@@ -9,6 +10,7 @@ from typing import Sequence, Any, cast
 
 class MqttHelper:
     def __init__(self, service: str) -> None:
+        self.logger = logging.getLogger(__name__)
         self.service = service
         self.service_slug = re.sub(r"[^a-zA-Z0-9]+", "", service)
 
