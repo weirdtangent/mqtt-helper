@@ -7,7 +7,7 @@ name = "mqtt-helper-graystorm"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "logging>=0.4.9.6",
     "paho-mqtt>=2.1.0",
@@ -63,8 +63,8 @@ exclude = [
 line-length = 160
 indent-width = 4
 
-# Assume Python 3.14
-target-version = "py314"
+# Assume Python 3.13
+target-version = "py313"
 
 [tool.black]
 line-length = 160

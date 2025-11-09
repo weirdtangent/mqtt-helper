@@ -5,7 +5,7 @@ from paho.mqtt.client import PayloadType, Client
 import random
 import re
 import string
-from typing import Sequence, Any, cast
+from typing import Any, cast
 
 
 class MqttHelper:
