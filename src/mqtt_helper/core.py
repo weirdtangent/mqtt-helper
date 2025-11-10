@@ -95,7 +95,7 @@ class MqttHelper:
 
     # Misc helpers --------------------------------------------------------------------------------
 
-    def safe_publish(self, topic: str, payload: str | bool | int | dict | None, **kwargs: Any) -> None:
+    def safe_publish(self, topic: str, payload: Any, **kwargs: Any) -> None:
         if not self.client:
             raise SystemError("Mqtt client not connected, cannot publish")
         if not topic:
