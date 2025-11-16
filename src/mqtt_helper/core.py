@@ -9,12 +9,14 @@ from typing import Any, cast
 
 
 class MqttHelper:
-    def __init__(self, service: str) -> None:
+    def __init__(self, service: str, default_qos: int | None = None, default_retain: bool | None = None) -> None:
         self.logger = logging.getLogger(__name__)
         self.service = service
         self.service_slug = re.sub(r"[^a-zA-Z0-9]+", "", service)
 
         self.client: Client = None
+        self.default_qos = default_qos
+        self.default_retain = default_retain
 
     def set_client(self, client: Client) -> None:
         self.client = client
@@ -107,6 +109,10 @@ class MqttHelper:
             raise ValueError("Possible invalid payload. topic: {topic} payload: {payload}")
 
         try:
+            if "qos" not in kwargs and self.default_qos is not None:
+                kwargs["qos"] = self.default_qos
+            if "retain" not in kwargs and self.default_retain is not None:
+                kwargs["retain"] = self.default_retain
             if payload is None:
                 self.client.publish(topic, "null", **kwargs)
             else:
