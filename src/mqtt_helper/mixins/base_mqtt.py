@@ -66,22 +66,22 @@ class BaseMqttMixin:
         try:
             host = self.mqtt_config["host"]
             port = self.mqtt_config["port"]
-            self.logger.info(f"Connecting to MQTT broker at {host}:{port} as client id: {self.client_id}")
+            self.logger.info(f"connecting to MQTT broker at {host}:{port} as client id: {self.client_id}")
 
             props = Properties(PacketTypes.CONNECT)
             props.SessionExpiryInterval = 0
 
             self.mqttc.connect(host=host, port=port, keepalive=self.mqtt_keepalive, properties=props)
-            self.logger.info(f"Successful connection to {host} MQTT broker")
+            self.logger.info(f"successful connection to {host} MQTT broker")
 
             self.mqtt_connect_time = datetime.now()
             self.mqttc.loop_start()
         except ConnectionError as error:
-            self.logger.error(f"Failed to connect to MQTT host {host}: {error}")
+            self.logger.error(f"failed to connect to MQTT host {host}: {error}")
             self.running = False
             raise SystemExit(1)
         except Exception as error:
-            self.logger.error(f"Network problem trying to connect to MQTT host {host}: {error}")
+            self.logger.error(f"network problem trying to connect to MQTT host {host}: {error}")
             self.running = False
             raise SystemExit(1)
 
@@ -113,7 +113,7 @@ class BaseMqttMixin:
         await self.publish_service_availability()
         await self.publish_service_state()
 
-        self.logger.info("Subscribing to topics on MQTT")
+        self.logger.info("subscribing to topics on MQTT")
         for topic in self.mqtt_subscription_topics():
             client.subscribe(topic)
 
@@ -128,23 +128,23 @@ class BaseMqttMixin:
         self.mqtt_helper.clear_client()
 
         if reason_code.value != 0:
-            self.logger.error(f"MQTT lost connection ({reason_code.getName()})")
+            self.logger.error(f"mqtt lost connection ({reason_code.getName()})")
         else:
-            self.logger.info("Closed MQTT connection")
+            self.logger.info("closed MQTT connection")
 
         reconnect_after = self.mqtt_connect_time is None or datetime.now() > self.mqtt_connect_time + timedelta(seconds=self.reconnect_retry_grace_seconds)
 
         if self.running and reconnect_after:
             await self.mqttc_create()
         else:
-            self.logger.info("MQTT disconnect — stopping service loop")
+            self.logger.info("mqtt disconnect — stopping service loop")
             self.running = False
 
     async def mqtt_on_log(self, client: Client, userdata: Any, paho_log_level: int, msg: str) -> None:
         if paho_log_level == LogLevel.MQTT_LOG_ERR:
-            self.logger.error(f"MQTT logged: {msg}")
+            self.logger.error(f"mqtt logged: {msg}")
         if paho_log_level == LogLevel.MQTT_LOG_WARNING:
-            self.logger.warning(f"MQTT logged: {msg}")
+            self.logger.warning(f"mqtt logged: {msg}")
 
     async def mqtt_on_subscribe(
         self,
@@ -156,4 +156,4 @@ class BaseMqttMixin:
     ) -> None:
         reason_names = [rc.getName() for rc in reason_code_list]
         joined = "; ".join(reason_names) if reason_names else "none"
-        self.logger.debug(f"MQTT subscribed (mid={mid}): {joined}")
+        self.logger.debug(f"mqtt subscribed (mid={mid}): {joined}")

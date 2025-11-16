@@ -103,7 +103,7 @@ class MqttHelper:
         if not topic:
             raise ValueError("Cannot post to a blank topic")
         if isinstance(payload, dict) and ("component" in payload or "//////" in payload):
-            self.logger.warning("Questionable payload includes 'component' or string of slashes - wont't send to HA")
+            self.logger.warning("questionable payload includes 'component' or string of slashes - wont't send to HA")
             self.logger.warning(f"topic: {topic}")
             self.logger.warning(f"payload: {payload}")
             raise ValueError("Possible invalid payload. topic: {topic} payload: {payload}")
