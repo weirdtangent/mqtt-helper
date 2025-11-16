@@ -118,4 +118,6 @@ class MqttHelper:
             else:
                 self.client.publish(topic, cast(PayloadType, payload), **kwargs)
         except Exception as err:
-            self.logger.warning(f"MQTT publish failed for {topic} with payload type {type(payload)}: {payload[:120] if isinstance(payload, str) else payload}: {err}")
+            self.logger.warning(
+                f"MQTT publish failed for {topic} with payload type {type(payload)}: {payload[:120] if isinstance(payload, str) else payload}: {err}"
+            )
