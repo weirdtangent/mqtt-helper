@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Jeff Culverhouse
+import json
 import logging
 from paho.mqtt.client import PayloadType, Client
 import random
@@ -113,10 +114,15 @@ class MqttHelper:
                 kwargs["qos"] = self.default_qos
             if "retain" not in kwargs and self.default_retain is not None:
                 kwargs["retain"] = self.default_retain
+
+            publish_payload: PayloadType
             if payload is None:
-                self.client.publish(topic, "null", **kwargs)
+                publish_payload = "null"
+            elif isinstance(payload, dict):
+                publish_payload = cast(PayloadType, json.dumps(payload))
             else:
-                self.client.publish(topic, cast(PayloadType, payload), **kwargs)
+                publish_payload = cast(PayloadType, payload)
+            self.client.publish(topic, publish_payload, **kwargs)
         except Exception as err:
             self.logger.warning(
                 f"MQTT publish failed for {topic} with payload type {type(payload)}: {payload[:120] if isinstance(payload, str) else payload}: {err}"
