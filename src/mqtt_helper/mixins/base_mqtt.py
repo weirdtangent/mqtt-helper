@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Jeff Culverhouse
 import asyncio
-from datetime import datetime, timedelta
 import ssl
 
 from typing import Any, Callable, Coroutine, TypeVar
@@ -21,8 +20,10 @@ class MqttError(ValueError):
 
 
 class BaseMqttMixin:
-    reconnect_retry_grace_seconds = 10
     mqtt_keepalive = 60
+    reconnect_initial_delay = 5
+    reconnect_max_delay = 300
+    reconnect_backoff_factor = 2
 
     # Subclasses must implement -------------------------------------------------------------------
     def mqtt_subscription_topics(self) -> list[str]:
@@ -73,31 +74,29 @@ class BaseMqttMixin:
 
         self.mqttc.will_set(self.mqtt_helper.avty_t("service"), "offline", qos=1, retain=True)
 
-        try:
-            host = self.mqtt_config["host"]
-            port = self.mqtt_config["port"]
-            self.logger.info(f"connecting to MQTT broker at {host}:{port} as client id: {self.client_id}")
+        host = self.mqtt_config["host"]
+        port = self.mqtt_config["port"]
+        delay = self.reconnect_initial_delay
 
-            # Only use Properties for MQTT v5
-            if protocol == mqtt.MQTTv5:
-                props = Properties(PacketTypes.CONNECT)
-                props.SessionExpiryInterval = 0
-                self.mqttc.connect(host=host, port=port, keepalive=self.mqtt_keepalive, properties=props)
-            else:
-                self.mqttc.connect(host=host, port=port, keepalive=self.mqtt_keepalive)
+        while self.running:
+            try:
+                self.logger.info(f"connecting to MQTT broker at {host}:{port} as client id: {self.client_id}")
 
-            self.logger.info(f"successful connection to {host} MQTT broker")
+                # Only use Properties for MQTT v5
+                if protocol == mqtt.MQTTv5:
+                    props = Properties(PacketTypes.CONNECT)
+                    props.SessionExpiryInterval = 0
+                    self.mqttc.connect(host=host, port=port, keepalive=self.mqtt_keepalive, properties=props)
+                else:
+                    self.mqttc.connect(host=host, port=port, keepalive=self.mqtt_keepalive)
 
-            self.mqtt_connect_time = datetime.now()
-            self.mqttc.loop_start()
-        except ConnectionError as error:
-            self.logger.error(f"failed to connect to MQTT host {host}: {error}")
-            self.running = False
-            raise SystemExit(1)
-        except Exception as error:
-            self.logger.error(f"network problem trying to connect to MQTT host {host}: {error}")
-            self.running = False
-            raise SystemExit(1)
+                self.logger.info(f"successful connection to {host} MQTT broker")
+                self.mqttc.loop_start()
+                return
+            except Exception as error:
+                self.logger.warning(f"cannot connect to MQTT host {host}: {error} — retrying in {delay}s")
+                await asyncio.sleep(delay)
+                delay = min(delay * self.reconnect_backoff_factor, self.reconnect_max_delay)
 
     def _wrap_async(
         self,
@@ -146,13 +145,10 @@ class BaseMqttMixin:
         else:
             self.logger.info("closed MQTT connection")
 
-        reconnect_after = self.mqtt_connect_time is None or datetime.now() > self.mqtt_connect_time + timedelta(seconds=self.reconnect_retry_grace_seconds)
-
-        if self.running and reconnect_after:
+        if self.running:
             await self.mqttc_create()
         else:
             self.logger.info("mqtt disconnect — stopping service loop")
-            self.running = False
 
     async def mqtt_on_log(self, client: Client, userdata: Any, paho_log_level: int, msg: str) -> None:
         if paho_log_level == LogLevel.MQTT_LOG_ERR:
