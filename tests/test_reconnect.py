@@ -227,6 +227,24 @@ class TestMqttOnConnect:
         assert "NotAuthorized" in svc._mqtt_connect_error
         svc.mqtt_helper.set_client.assert_not_called()
 
+    async def test_sets_event_even_when_post_connect_raises(self):
+        """If publish_service_discovery (or similar) throws, event is still set."""
+        svc = FakeService()
+        svc._mqtt_connected = asyncio.Event()
+        svc._mqtt_connect_error = None
+        svc.publish_service_discovery = AsyncMock(side_effect=RuntimeError("boom"))
+
+        await svc.mqtt_on_connect(
+            client=MagicMock(),
+            userdata=None,
+            flags=MagicMock(),
+            reason_code=_make_reason_code(0),
+            properties=None,
+        )
+
+        assert svc._mqtt_connected.is_set()
+        assert "boom" in svc._mqtt_connect_error
+
 
 # ---------------------------------------------------------------------------
 # Tests: mqtt_on_disconnect

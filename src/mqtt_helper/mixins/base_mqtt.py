@@ -132,17 +132,21 @@ class BaseMqttMixin:
             self._mqtt_connected.set()
             return
 
-        self.mqtt_helper.set_client(client)
+        try:
+            self.mqtt_helper.set_client(client)
 
-        await self.publish_service_discovery()
-        await self.publish_service_availability()
-        await self.publish_service_state()
+            await self.publish_service_discovery()
+            await self.publish_service_availability()
+            await self.publish_service_state()
 
-        self.logger.info("subscribing to topics on MQTT")
-        for topic in self.mqtt_subscription_topics():
-            client.subscribe(topic)
-
-        self._mqtt_connected.set()
+            self.logger.info("subscribing to topics on MQTT")
+            for topic in self.mqtt_subscription_topics():
+                client.subscribe(topic)
+        except Exception as exc:
+            self._mqtt_connect_error = f"post-connect setup failed: {exc}"
+            self.logger.error(self._mqtt_connect_error)
+        finally:
+            self._mqtt_connected.set()
 
     async def mqtt_on_disconnect(
         self,
