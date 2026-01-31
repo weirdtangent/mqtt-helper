@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from mqtt_helper.mixins.base_mqtt import BaseMqttMixin, MqttError
+from mqtt_helper.mixins.base_mqtt import BaseMqttMixin
 
 
 # ---------------------------------------------------------------------------
@@ -54,14 +54,6 @@ def _make_disconnect_flags():
     return MagicMock()
 
 
-def _simulate_successful_connect(svc):
-    """Return a connect side-effect that signals the _mqtt_connected event."""
-    def connect_ok(*args, **kwargs):
-        # Simulate on_connect firing after loop_start — schedule it
-        svc.loop.call_soon(svc._mqtt_connected.set)
-    return connect_ok
-
-
 # ---------------------------------------------------------------------------
 # Tests: mqttc_create retry loop
 # ---------------------------------------------------------------------------
@@ -71,9 +63,7 @@ class TestMqttcCreateRetry:
     async def test_connects_on_first_try(self, MockClient):
         """Happy path — broker is available, connects immediately."""
         svc = FakeService()
-        svc.loop = asyncio.get_event_loop()
         mock_client = MockClient.return_value
-        mock_client.connect.side_effect = _simulate_successful_connect(svc)
 
         await svc.mqttc_create()
 
@@ -85,19 +75,12 @@ class TestMqttcCreateRetry:
     async def test_retries_then_connects(self, MockClient, mock_sleep):
         """Broker unavailable twice, then comes back on third attempt."""
         svc = FakeService()
-        svc.loop = asyncio.get_event_loop()
         mock_client = MockClient.return_value
-
-        call_count = 0
-        def connect_side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                raise ConnectionRefusedError("refused")
-            # Third call succeeds — signal the event
-            svc.loop.call_soon(svc._mqtt_connected.set)
-
-        mock_client.connect.side_effect = connect_side_effect
+        mock_client.connect.side_effect = [
+            ConnectionRefusedError("refused"),
+            OSError("network unreachable"),
+            None,  # success on third try
+        ]
 
         await svc.mqttc_create()
 
@@ -110,18 +93,10 @@ class TestMqttcCreateRetry:
     async def test_backoff_increases(self, MockClient, mock_sleep):
         """Verify delay doubles each retry up to max."""
         svc = FakeService()
-        svc.loop = asyncio.get_event_loop()
         mock_client = MockClient.return_value
-
-        call_count = 0
-        def connect_side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 4:
-                raise OSError("fail")
-            svc.loop.call_soon(svc._mqtt_connected.set)
-
-        mock_client.connect.side_effect = connect_side_effect
+        # Fail 4 times, then succeed
+        mock_client.connect.side_effect = [
+            OSError("fail")] * 4 + [None]
 
         await svc.mqttc_create()
 
@@ -152,38 +127,8 @@ class TestMqttcCreateRetry:
 
         await svc.mqttc_create()
 
-        # loop_start is called before we await the event, but connect raised
-        # so loop_start should not have been reached
+        # Should have exited the loop without calling loop_start
         mock_client.loop_start.assert_not_called()
-
-    @patch("mqtt_helper.mixins.base_mqtt.asyncio.sleep", new_callable=AsyncMock)
-    @patch("mqtt_helper.mixins.base_mqtt.mqtt.Client")
-    async def test_on_connect_failure_triggers_retry(self, MockClient, mock_sleep):
-        """If on_connect reports a bad reason code, mqttc_create retries."""
-        svc = FakeService()
-        svc.loop = asyncio.get_event_loop()
-        mock_client = MockClient.return_value
-
-        call_count = 0
-        def connect_side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # Simulate broker rejecting with bad reason code
-                def signal_error():
-                    svc._mqtt_connect_error = "MQTT failed to connect (NotAuthorized)"
-                    svc._mqtt_connected.set()
-                svc.loop.call_soon(signal_error)
-            else:
-                # Second attempt succeeds
-                svc.loop.call_soon(svc._mqtt_connected.set)
-
-        mock_client.connect.side_effect = connect_side_effect
-
-        await svc.mqttc_create()
-
-        assert mock_client.connect.call_count == 2
-        assert mock_sleep.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -191,11 +136,9 @@ class TestMqttcCreateRetry:
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 class TestMqttOnConnect:
-    async def test_sets_event_on_success(self):
-        """on_connect sets _mqtt_connected event on success."""
+    async def test_sets_client_on_success(self):
+        """on_connect sets client and publishes discovery on success."""
         svc = FakeService()
-        svc._mqtt_connected = asyncio.Event()
-        svc._mqtt_connect_error = None
 
         await svc.mqtt_on_connect(
             client=MagicMock(),
@@ -205,15 +148,14 @@ class TestMqttOnConnect:
             properties=None,
         )
 
-        assert svc._mqtt_connected.is_set()
-        assert svc._mqtt_connect_error is None
         svc.mqtt_helper.set_client.assert_called_once()
+        svc.publish_service_discovery.assert_awaited_once()
+        svc.publish_service_availability.assert_awaited_once()
+        svc.publish_service_state.assert_awaited_once()
 
-    async def test_sets_error_on_failure(self):
-        """on_connect signals error when reason_code is non-zero."""
+    async def test_does_not_set_client_on_failure(self):
+        """on_connect does not set client when reason_code is non-zero."""
         svc = FakeService()
-        svc._mqtt_connected = asyncio.Event()
-        svc._mqtt_connect_error = None
 
         await svc.mqtt_on_connect(
             client=MagicMock(),
@@ -223,27 +165,7 @@ class TestMqttOnConnect:
             properties=None,
         )
 
-        assert svc._mqtt_connected.is_set()
-        assert "NotAuthorized" in svc._mqtt_connect_error
         svc.mqtt_helper.set_client.assert_not_called()
-
-    async def test_sets_event_even_when_post_connect_raises(self):
-        """If publish_service_discovery (or similar) throws, event is still set."""
-        svc = FakeService()
-        svc._mqtt_connected = asyncio.Event()
-        svc._mqtt_connect_error = None
-        svc.publish_service_discovery = AsyncMock(side_effect=RuntimeError("boom"))
-
-        await svc.mqtt_on_connect(
-            client=MagicMock(),
-            userdata=None,
-            flags=MagicMock(),
-            reason_code=_make_reason_code(0),
-            properties=None,
-        )
-
-        assert svc._mqtt_connected.is_set()
-        assert "boom" in svc._mqtt_connect_error
 
 
 # ---------------------------------------------------------------------------

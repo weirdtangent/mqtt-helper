@@ -81,8 +81,6 @@ class BaseMqttMixin:
         while self.running:
             try:
                 self.logger.info(f"connecting to MQTT broker at {host}:{port} as client id: {self.client_id}")
-                self._mqtt_connected = asyncio.Event()
-                self._mqtt_connect_error: str | None = None
 
                 # Only use Properties for MQTT v5
                 if protocol == mqtt.MQTTv5:
@@ -92,19 +90,11 @@ class BaseMqttMixin:
                 else:
                     self.mqttc.connect(host=host, port=port, keepalive=self.mqtt_keepalive)
 
-                self.mqttc.loop_start()
-
-                # Wait for on_connect callback to confirm the connection
-                await self._mqtt_connected.wait()
-
-                if self._mqtt_connect_error:
-                    raise MqttError(self._mqtt_connect_error)
-
                 self.logger.info(f"successful connection to {host} MQTT broker")
+                self.mqttc.loop_start()
                 return
             except Exception as error:
                 self.logger.warning(f"cannot connect to MQTT host {host}: {error} — retrying in {delay}s")
-                self.mqttc.loop_stop()
                 await asyncio.sleep(delay)
                 delay = min(delay * self.reconnect_backoff_factor, self.reconnect_max_delay)
 
@@ -128,25 +118,18 @@ class BaseMqttMixin:
         properties: Properties | None,
     ) -> None:
         if reason_code.value != 0:
-            self._mqtt_connect_error = f"MQTT failed to connect ({reason_code.getName()})"
-            self._mqtt_connected.set()
+            self.logger.error(f"MQTT failed to connect ({reason_code.getName()})")
             return
 
-        try:
-            self.mqtt_helper.set_client(client)
+        self.mqtt_helper.set_client(client)
 
-            await self.publish_service_discovery()
-            await self.publish_service_availability()
-            await self.publish_service_state()
+        await self.publish_service_discovery()
+        await self.publish_service_availability()
+        await self.publish_service_state()
 
-            self.logger.info("subscribing to topics on MQTT")
-            for topic in self.mqtt_subscription_topics():
-                client.subscribe(topic)
-        except Exception as exc:
-            self._mqtt_connect_error = f"post-connect setup failed: {exc}"
-            self.logger.error(self._mqtt_connect_error)
-        finally:
-            self._mqtt_connected.set()
+        self.logger.info("subscribing to topics on MQTT")
+        for topic in self.mqtt_subscription_topics():
+            client.subscribe(topic)
 
     async def mqtt_on_disconnect(
         self,
