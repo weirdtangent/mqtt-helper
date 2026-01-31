@@ -78,6 +78,8 @@ class BaseMqttMixin:
         port = self.mqtt_config["port"]
         delay = self.reconnect_initial_delay
 
+        # IMPORTANT: must be `while True`, not `while self.running` — apps
+        # set self.running = True AFTER mqttc_create() returns.
         while True:
             try:
                 self.logger.info(f"connecting to MQTT broker at {host}:{port} as client id: {self.client_id}")
