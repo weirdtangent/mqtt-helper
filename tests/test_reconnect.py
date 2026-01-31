@@ -109,26 +109,17 @@ class TestMqttcCreateRetry:
 
     @patch("mqtt_helper.mixins.base_mqtt.asyncio.sleep", new_callable=AsyncMock)
     @patch("mqtt_helper.mixins.base_mqtt.mqtt.Client")
-    async def test_stops_when_running_set_false(self, MockClient, mock_sleep):
-        """If self.running becomes False during retry, loop exits without connecting."""
+    async def test_connects_even_when_running_is_false(self, MockClient, mock_sleep):
+        """mqttc_create retries regardless of self.running (apps set it after)."""
         svc = FakeService()
+        svc.running = False  # simulate app that sets running=True after mqttc_create
         mock_client = MockClient.return_value
-
-        call_count = 0
-
-        def fail_then_stop(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                svc.running = False
-            raise OSError("down")
-
-        mock_client.connect.side_effect = fail_then_stop
+        mock_client.connect.side_effect = [OSError("down"), None]
 
         await svc.mqttc_create()
 
-        # Should have exited the loop without calling loop_start
-        mock_client.loop_start.assert_not_called()
+        assert mock_client.connect.call_count == 2
+        mock_client.loop_start.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
