@@ -100,7 +100,8 @@ class MqttHelper:
 
     def safe_publish(self, topic: str, payload: Any, **kwargs: Any) -> None:
         if not self.client:
-            raise SystemError("Mqtt client not connected, cannot publish")
+            self.logger.warning(f"mqtt client not connected, dropping publish to {topic}")
+            return
         if not topic:
             raise ValueError("Cannot post to a blank topic")
         if isinstance(payload, dict) and ("component" in payload or "//////" in payload):
