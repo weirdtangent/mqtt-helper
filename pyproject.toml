@@ -81,3 +81,8 @@ extend-exclude = '''
  |build
 )/
 '''
+
+[tool.pytest.ini_options]
+pythonpath = "src"
+asyncio_mode = "auto"
+addopts = "--quiet"
