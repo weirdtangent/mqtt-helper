@@ -33,22 +33,23 @@ class BaseMqttMixin:
     # Core MQTT plumbing --------------------------------------------------------------------------
     async def mqttc_create(self) -> None:
         """Configure and connect the MQTT client."""
-        self.client_id = self.mqtt_helper.client_id()
-
-        # Determine MQTT protocol version from config (default to v5)
-        protocol_version = self.mqtt_config.get("protocol_version", "5")
-        if protocol_version == "3.1.1" or protocol_version == "3":
-            protocol = mqtt.MQTTv311
+        protocol_version = str(self.mqtt_config.get("protocol_version", "5"))
+        if protocol_version in ("3.1.1", "3"):
+            self.mqtt_protocol = mqtt.MQTTv311
             self.logger.info("using MQTT protocol version 3.1.1")
-        else:
-            protocol = mqtt.MQTTv5
+        elif protocol_version == "5":
+            self.mqtt_protocol = mqtt.MQTTv5
             self.logger.info("using MQTT protocol version 5")
+        else:
+            self.mqtt_protocol = mqtt.MQTTv5
+            self.logger.warning(f"invalid MQTT protocol_version '{protocol_version}', defaulting to version 5")
 
+        self.client_id = self.mqtt_helper.client_id()
         self.mqttc = mqtt.Client(
             client_id=self.client_id,
             callback_api_version=CallbackAPIVersion.VERSION2,
             reconnect_on_failure=False,
-            protocol=protocol,
+            protocol=self.mqtt_protocol,
         )
 
         if self.mqtt_config.get("tls_enabled"):
@@ -85,7 +86,7 @@ class BaseMqttMixin:
                 self.logger.info(f"connecting to MQTT broker at {host}:{port} as client id: {self.client_id}")
 
                 # Only use Properties for MQTT v5
-                if protocol == mqtt.MQTTv5:
+                if self.mqtt_protocol == mqtt.MQTTv5:
                     props = Properties(PacketTypes.CONNECT)
                     props.SessionExpiryInterval = 0
                     self.mqttc.connect(host=host, port=port, keepalive=self.mqtt_keepalive, properties=props)
