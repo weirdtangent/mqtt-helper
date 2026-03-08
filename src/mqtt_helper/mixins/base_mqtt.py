@@ -60,6 +60,8 @@ class BaseMqttMixin:
                 cert_reqs=ssl.CERT_REQUIRED,
                 tls_version=ssl.PROTOCOL_TLS,
             )
+        else:
+            self.logger.warning("MQTT TLS is disabled — credentials and data will be sent in cleartext")
 
         if self.mqtt_config.get("username") or self.mqtt_config.get("password"):
             self.mqttc.username_pw_set(
