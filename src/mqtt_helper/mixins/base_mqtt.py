@@ -33,6 +33,18 @@ class BaseMqttMixin:
     # Core MQTT plumbing --------------------------------------------------------------------------
     async def mqttc_create(self) -> None:
         """Configure and connect the MQTT client."""
+        # Clean up any existing client before creating a new one (reconnect path)
+        old = getattr(self, "mqttc", None)
+        if old is not None:
+            try:
+                old.loop_stop()
+            except Exception:
+                pass
+            try:
+                old.disconnect()
+            except Exception:
+                pass
+
         protocol_version = str(self.mqtt_config.get("protocol_version", "5"))
         if protocol_version in ("3.1.1", "3"):
             self.mqtt_protocol = mqtt.MQTTv311
@@ -152,6 +164,8 @@ class BaseMqttMixin:
             self.logger.info("closed MQTT connection")
 
         if self.running:
+            self.logger.info("will attempt to reconnect to MQTT broker...")
+            await asyncio.sleep(self.reconnect_initial_delay)
             await self.mqttc_create()
         else:
             self.logger.info("mqtt disconnect — stopping service loop")
