@@ -27,6 +27,14 @@ dev = [
     "ruff>=0.14.2",
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24",
+    "pip-audit>=2.10.1",
+]
+
+[tool.uv]
+# Force patched floors for transitive deps that pip-audit flags but no
+# direct dependency requires (only reachable via dev tooling here).
+constraint-dependencies = [
+    "click>=8.3.3",  # PYSEC-2026-2132
 ]
 
 [tool.ruff]
