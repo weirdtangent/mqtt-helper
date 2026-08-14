@@ -261,6 +261,116 @@ async def test_clear_discovery_topic_publishes_empty_retained():
 
 
 # ---------------------------------------------------------------------------
+# Tests: scanning the broker for what we actually own
+# ---------------------------------------------------------------------------
+def _make_scan_client(topics):
+    """A fake client that replays retained configs on the wildcard subscribe."""
+    client = MagicMock()
+    holder: dict = {}
+
+    def _add(topic, callback):
+        holder[topic] = callback
+
+    def _subscribe(topic, *args, **kwargs):
+        cb = holder.get(topic)
+        if cb is None:
+            return
+        for t, payload in topics.items():
+            message = MagicMock()
+            message.topic = t
+            message.payload = payload
+            cb(client, None, message)
+
+    client.message_callback_add.side_effect = _add
+    client.subscribe.side_effect = _subscribe
+    return client
+
+
+def _scanning_service(topics):
+    svc = FakeService()
+    svc.discovery_scan_timeout = 0
+    svc.mqtt_helper.client = _make_scan_client(topics)
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_scan_finds_only_our_own_topics():
+    svc = _scanning_service(
+        {
+            "homeassistant/device/testsvc_service/config": b'{"x":1}',
+            "homeassistant/device/testsvc_CAM1/config": b'{"x":1}',
+            "homeassistant/device/othersvc_CAM1/config": b'{"x":1}',
+            "homeassistant/device/testsvcextra_CAM1/config": b'{"x":1}',
+        }
+    )
+
+    assert await svc.collect_retained_discovery_topics() == [
+        "homeassistant/device/testsvc_CAM1/config",
+        "homeassistant/device/testsvc_service/config",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_scan_ignores_already_cleared_topics():
+    svc = _scanning_service(
+        {
+            "homeassistant/device/testsvc_service/config": b'{"x":1}',
+            "homeassistant/device/testsvc_GONE/config": b"",
+        }
+    )
+
+    assert await svc.collect_retained_discovery_topics() == ["homeassistant/device/testsvc_service/config"]
+
+
+@pytest.mark.asyncio
+async def test_scan_tears_down_its_subscription():
+    """The wildcard would otherwise shadow every other service's discovery traffic."""
+    svc = _scanning_service({})
+
+    await svc.collect_retained_discovery_topics()
+
+    svc.mqtt_helper.client.message_callback_remove.assert_called_once_with("homeassistant/+/+/config")
+    svc.mqtt_helper.client.unsubscribe.assert_called_once_with("homeassistant/+/+/config")
+
+
+@pytest.mark.asyncio
+async def test_scan_honours_a_custom_discovery_prefix():
+    svc = _scanning_service({})
+    svc.mqtt_config = {"discovery_prefix": "ha"}
+
+    await svc.collect_retained_discovery_topics()
+
+    svc.mqtt_helper.client.subscribe.assert_called_once_with("ha/+/+/config")
+
+
+@pytest.mark.asyncio
+async def test_scan_without_a_client_returns_empty():
+    svc = FakeService()
+    svc.mqtt_helper.client = None
+
+    assert await svc.collect_retained_discovery_topics() == []
+
+
+@pytest.mark.asyncio
+async def test_clear_retained_discovery_clears_every_topic_found():
+    """Covers per-device topics the device map does not know about yet at connect time."""
+    svc = _scanning_service(
+        {
+            "homeassistant/device/testsvc_service/config": b'{"x":1}',
+            "homeassistant/device/testsvc_CAM1/config": b'{"x":1}',
+        }
+    )
+
+    assert await svc.clear_retained_discovery() == 2
+
+    cleared = [c.args[0] for c in svc.mqtt_helper.safe_publish.call_args_list if c.args[1] == ""]
+    assert cleared == [
+        "homeassistant/device/testsvc_CAM1/config",
+        "homeassistant/device/testsvc_service/config",
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Tests: on_connect wiring
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
