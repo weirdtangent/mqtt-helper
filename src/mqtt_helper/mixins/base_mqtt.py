@@ -25,9 +25,37 @@ class BaseMqttMixin:
     reconnect_max_delay = 300
     reconnect_backoff_factor = 2
 
+    # Discovery schema versioning -----------------------------------------------------------------
+    # Bump DISCOVERY_SCHEMA_VERSION in a service ONLY when its entity layout changes: unique_ids,
+    # entity names, or the set of components it publishes. A bump makes the service clear its
+    # retained discovery topics on next connect, which deletes the entities from Home Assistant's
+    # registry (losing user renames, areas, and hidden/disabled flags) before recreating them.
+    # That is the whole point — it is the only way to unstick an entity_id that HA assigned from a
+    # previous release's name — but it is destructive, so never bump it casually.
+    #
+    # 0 (the default) opts a service out entirely: no version topic, no reset, no behaviour change.
+    DISCOVERY_SCHEMA_VERSION: int = 0
+
+    # How long to wait for the broker to deliver the retained version after subscribing. Nothing
+    # within this window means "unknown", NOT "changed" — see _maybe_reset_discovery.
+    discovery_schema_read_timeout = 5.0
+
+    # Pause between clearing retained discovery and republishing it, so HA processes the removals
+    # before the recreates arrive.
+    discovery_reset_settle_delay = 1.0
+
     # Subclasses must implement -------------------------------------------------------------------
     def mqtt_subscription_topics(self) -> list[str]:
         """Return a list of topics to subscribe to after connecting."""
+        raise NotImplementedError
+
+    # Subclasses must implement if DISCOVERY_SCHEMA_VERSION > 0 -----------------------------------
+    async def clear_discovery(self) -> None:
+        """Clear every retained discovery topic this service owns, via clear_discovery_topic()."""
+        raise NotImplementedError
+
+    async def rediscover_all(self) -> None:
+        """Republish all discovery payloads (and the state that backs them)."""
         raise NotImplementedError
 
     # Core MQTT plumbing --------------------------------------------------------------------------
@@ -140,13 +168,126 @@ class BaseMqttMixin:
 
         self.mqtt_helper.set_client(client)
 
-        await self.publish_service_discovery()
+        # A schema bump republishes discovery itself, so only publish it here when no reset ran.
+        if not await self._maybe_reset_discovery(client):
+            await self.publish_service_discovery()
+
         await self.publish_service_availability()
         await self.publish_service_state()
 
         self.logger.info("subscribing to topics on MQTT")
         for topic in self.mqtt_subscription_topics():
             client.subscribe(topic)
+
+    # Discovery schema versioning -----------------------------------------------------------------
+
+    def discovery_schema_version_topic(self) -> str:
+        return "/".join([self.mqtt_helper.service_slug, "service", "discovery_schema_version"])
+
+    async def clear_discovery_topic(self, topic: str) -> None:
+        """Delete a retained discovery topic (and the HA registry entry behind it).
+
+        The payload must be genuinely empty — that is what HA reads as "remove this". Passing None
+        would publish the string "null", which HA parses as a malformed config instead.
+        """
+        await asyncio.to_thread(self.mqtt_helper.safe_publish, topic, "", retain=True)
+
+    async def publish_discovery_schema_version(self, version: int | None = None) -> None:
+        """Stamp the current schema version as a retained value.
+
+        Retained on the broker rather than a local file on purpose: it has to outlive container
+        replacement, which is exactly the upgrade path that strands entities in HA's registry.
+        """
+        if version is None:
+            version = self.DISCOVERY_SCHEMA_VERSION
+        await asyncio.to_thread(
+            self.mqtt_helper.safe_publish,
+            self.discovery_schema_version_topic(),
+            str(version),
+            retain=True,
+        )
+
+    async def read_discovery_schema_version(self, client: Client) -> int | None:
+        """Return the retained schema version, or None if the broker has none to give us.
+
+        Uses a topic-scoped callback so the value never reaches the service's own mqtt_on_message,
+        which in most services would route it straight into command handling.
+        """
+        topic = self.discovery_schema_version_topic()
+        future: asyncio.Future[bytes] = self.loop.create_future()
+
+        def _on_version(_client: Client, _userdata: Any, message: Any) -> None:
+            # Runs on paho's network thread — hop back to the service loop to settle the future.
+            payload = message.payload
+
+            def _settle() -> None:
+                if not future.done():
+                    future.set_result(payload)
+
+            self.loop.call_soon_threadsafe(_settle)
+
+        client.message_callback_add(topic, _on_version)
+        client.subscribe(topic)
+        try:
+            raw = await asyncio.wait_for(future, timeout=self.discovery_schema_read_timeout)
+        except TimeoutError:
+            return None
+        finally:
+            client.message_callback_remove(topic)
+            client.unsubscribe(topic)
+
+        try:
+            text = raw.decode("utf-8").strip() if isinstance(raw, (bytes, bytearray)) else str(raw).strip()
+        except Exception as err:
+            self.logger.warning(f"could not decode retained discovery schema version: {err!r}")
+            return None
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            self.logger.warning(f"ignoring unparsable retained discovery schema version: {text!r}")
+            return None
+
+    async def reset_discovery(self, reason: str = "requested") -> None:
+        """Clear all retained discovery, wait for HA to catch up, then republish it."""
+        self.logger.warning(f"resetting HA discovery ({reason}) — entity customizations will be lost")
+        await self.clear_discovery()
+        await asyncio.sleep(self.discovery_reset_settle_delay)
+        await self.rediscover_all()
+        await self.publish_discovery_schema_version()
+        self.logger.info("HA discovery reset complete")
+
+    async def _maybe_reset_discovery(self, client: Client) -> bool:
+        """Reset discovery if the retained schema version disagrees with ours. Returns True if it ran.
+
+        Runs at most once per process: after a reset the new version is retained, so a reconnect
+        would be a no-op anyway, and skipping it keeps a flapping connection from re-resetting.
+        """
+        if self.DISCOVERY_SCHEMA_VERSION <= 0 or getattr(self, "_discovery_schema_checked", False):
+            return False
+
+        try:
+            stored = await self.read_discovery_schema_version(client)
+        except Exception as err:
+            self.logger.warning(f"could not read discovery schema version, skipping reset: {err!r}")
+            return False
+
+        self._discovery_schema_checked = True
+
+        if stored is None:
+            # No retained value: a fresh install, or a broker that lost its retained set. Either way
+            # this is "unknown", not "changed" — resetting here would churn every healthy install
+            # whose broker was rebuilt. Stamp the version so the next start has something to read.
+            self.logger.info(f"no retained discovery schema version — recording {self.DISCOVERY_SCHEMA_VERSION} without resetting")
+            await self.publish_discovery_schema_version()
+            return False
+
+        if stored == self.DISCOVERY_SCHEMA_VERSION:
+            return False
+
+        await self.reset_discovery(reason=f"discovery schema version {stored} -> {self.DISCOVERY_SCHEMA_VERSION}")
+        return True
 
     async def mqtt_on_disconnect(
         self,
