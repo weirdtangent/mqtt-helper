@@ -261,8 +261,10 @@ class BaseMqttMixin:
     async def _maybe_reset_discovery(self, client: Client) -> bool:
         """Reset discovery if the retained schema version disagrees with ours. Returns True if it ran.
 
-        Runs at most once per process: after a reset the new version is retained, so a reconnect
-        would be a no-op anyway, and skipping it keeps a flapping connection from re-resetting.
+        Settles at most once per process: after a reset the new version is retained, so a reconnect
+        would be a no-op anyway, and skipping it keeps a flapping connection from re-resetting. The
+        flag is only set once we have actually reached that settled state -- a reset that failed or
+        that lost the broker partway leaves it unset so the next connect finishes the job.
         """
         if self.DISCOVERY_SCHEMA_VERSION <= 0 or getattr(self, "_discovery_schema_checked", False):
             return False
@@ -273,20 +275,39 @@ class BaseMqttMixin:
             self.logger.warning(f"could not read discovery schema version, skipping reset: {err!r}")
             return False
 
-        self._discovery_schema_checked = True
-
         if stored is None:
             # No retained value: a fresh install, or a broker that lost its retained set. Either way
             # this is "unknown", not "changed" — resetting here would churn every healthy install
             # whose broker was rebuilt. Stamp the version so the next start has something to read.
             self.logger.info(f"no retained discovery schema version — recording {self.DISCOVERY_SCHEMA_VERSION} without resetting")
+            self._discovery_schema_checked = True
             await self.publish_discovery_schema_version()
             return False
 
         if stored == self.DISCOVERY_SCHEMA_VERSION:
+            self._discovery_schema_checked = True
             return False
 
-        await self.reset_discovery(reason=f"discovery schema version {stored} -> {self.DISCOVERY_SCHEMA_VERSION}")
+        try:
+            await self.reset_discovery(reason=f"discovery schema version {stored} -> {self.DISCOVERY_SCHEMA_VERSION}")
+        except Exception as err:
+            # Never let this abort mqtt_on_connect: that would skip availability and the topic
+            # subscriptions, leaving the service connected but deaf until a process restart. The
+            # version stamp is written at the end of reset_discovery, so the broker still holds the
+            # old value and the next connect retries. Returning False also lets on_connect publish
+            # service discovery, so a half-cleared install is not left with nothing at all in HA.
+            self.logger.exception(f"discovery reset failed, will retry on next connect: {err!r}")
+            return False
+
+        if getattr(self.mqtt_helper, "client", None) is None:
+            # We lost the broker partway through. safe_publish drops publishes silently when
+            # disconnected, so the republish and the version stamp may never have gone out -- and
+            # without an exception to catch. Leave the flag unset; the retained version still holds
+            # the old value, so the next connect will redo the whole reset.
+            self.logger.warning("lost MQTT connection during discovery reset — will redo it on next connect")
+            return True
+
+        self._discovery_schema_checked = True
         return True
 
     async def mqtt_on_disconnect(

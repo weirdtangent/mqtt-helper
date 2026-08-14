@@ -174,6 +174,53 @@ async def test_reset_runs_once_per_process():
 
 
 @pytest.mark.asyncio
+async def test_failed_reset_retries_on_the_next_connect():
+    """A reset that dies partway must not be latched off — that would strand a half-cleared install."""
+    svc = FakeService()
+    svc.rediscover_all = AsyncMock(side_effect=RuntimeError("republish blew up"))
+
+    assert await svc._maybe_reset_discovery(_make_client(b"2")) is False
+
+    svc.clear_discovery.assert_awaited_once()
+    assert getattr(svc, "_discovery_schema_checked", False) is False
+
+    # the version was never stamped, so the retry still sees a mismatch and finishes the job
+    svc.rediscover_all = AsyncMock()
+    assert await svc._maybe_reset_discovery(_make_client(b"2")) is True
+    svc.rediscover_all.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_failed_reset_still_lets_on_connect_finish():
+    """An exception here must not skip availability and the topic subscriptions."""
+    svc = FakeService()
+    svc.rediscover_all = AsyncMock(side_effect=RuntimeError("republish blew up"))
+    client = _make_client(b"2")
+
+    await svc.mqtt_on_connect(client, {}, MagicMock(), _make_reason_code(), None)
+
+    # falls back to a plain discovery publish rather than leaving HA with nothing
+    svc.publish_service_discovery.assert_awaited_once()
+    svc.publish_service_availability.assert_awaited_once()
+    client.subscribe.assert_any_call("testsvc/service/+/set")
+
+
+@pytest.mark.asyncio
+async def test_losing_the_broker_mid_reset_retries():
+    """safe_publish drops publishes silently when disconnected — no exception to catch."""
+    svc = FakeService()
+
+    async def _drop_connection():
+        svc.mqtt_helper.client = None
+
+    svc.rediscover_all = AsyncMock(side_effect=_drop_connection)
+
+    assert await svc._maybe_reset_discovery(_make_client(b"2")) is True
+
+    assert getattr(svc, "_discovery_schema_checked", False) is False
+
+
+@pytest.mark.asyncio
 async def test_read_failure_does_not_reset():
     svc = FakeService()
     client = MagicMock()
