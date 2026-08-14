@@ -152,6 +152,17 @@ async def test_absent_version_records_without_resetting():
 
 
 @pytest.mark.asyncio
+async def test_absent_version_restamps_if_the_stamp_was_dropped():
+    """A stamp lost to a disconnect must not latch: the broker would keep no baseline at all."""
+    svc = FakeService()
+    svc.mqtt_helper.safe_publish.side_effect = lambda *a, **kw: setattr(svc.mqtt_helper, "client", None)
+
+    assert await svc._maybe_reset_discovery(_make_client(None)) is False
+
+    assert getattr(svc, "_discovery_schema_checked", False) is False
+
+
+@pytest.mark.asyncio
 async def test_version_zero_opts_out_entirely():
     svc = OptedOutService()
 
