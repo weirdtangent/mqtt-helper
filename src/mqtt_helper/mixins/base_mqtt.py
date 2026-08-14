@@ -44,6 +44,9 @@ class BaseMqttMixin:
     # before the recreates arrive.
     discovery_reset_settle_delay = 1.0
 
+    # How long to let the broker replay retained discovery configs when scanning for what we own.
+    discovery_scan_timeout = 3.0
+
     # Subclasses must implement -------------------------------------------------------------------
     def mqtt_subscription_topics(self) -> list[str]:
         """Return a list of topics to subscribe to after connecting."""
@@ -191,6 +194,59 @@ class BaseMqttMixin:
         would publish the string "null", which HA parses as a malformed config instead.
         """
         await asyncio.to_thread(self.mqtt_helper.safe_publish, topic, "", retain=True)
+
+    def discovery_prefix(self) -> str:
+        return str(getattr(self, "mqtt_config", {}).get("discovery_prefix") or "homeassistant")
+
+    async def collect_retained_discovery_topics(self) -> list[str]:
+        """Ask the broker which discovery topics this service actually owns.
+
+        Deriving the list from in-memory state does not work: the schema gate runs from
+        mqtt_on_connect, before the device map has been populated, so every per-device topic would
+        be missed -- leaving stale configs retained and reducing a version bump to an in-place
+        update, which cannot dislodge a squatted entity_id. The broker's retained set is the
+        authoritative record, and scanning it also sweeps up orphans for devices that no longer
+        exist.
+        """
+        client = getattr(self.mqtt_helper, "client", None)
+        if client is None:
+            self.logger.warning("no MQTT client — cannot scan for retained discovery topics")
+            return []
+
+        slug = self.mqtt_helper.service_slug
+        # MQTT wildcards match a whole level, so `<slug>_+` is not expressible; subscribe broadly
+        # and filter client-side.
+        wildcard = "/".join([self.discovery_prefix(), "+", "+", "config"])
+        found: set[str] = set()
+
+        def _on_config(_client: Client, _userdata: Any, message: Any) -> None:
+            # Runs on paho's network thread; set.add is atomic, so no loop hop is needed and we
+            # avoid racing the scan window's end.
+            if not message.payload:
+                return  # already cleared — nothing to delete
+            parts = message.topic.split("/")
+            if len(parts) == 4 and (parts[2] == slug or parts[2].startswith(slug + "_")):
+                found.add(message.topic)
+
+        client.message_callback_add(wildcard, _on_config)
+        client.subscribe(wildcard)
+        try:
+            # Retained messages arrive in a burst after SUBACK with no completion signal, so the
+            # only option is to give the broker a window.
+            await asyncio.sleep(self.discovery_scan_timeout)
+        finally:
+            client.message_callback_remove(wildcard)
+            client.unsubscribe(wildcard)
+
+        return sorted(found)
+
+    async def clear_retained_discovery(self) -> int:
+        """Delete every retained discovery topic this service owns. Returns how many were cleared."""
+        topics = await self.collect_retained_discovery_topics()
+        for topic in topics:
+            await self.clear_discovery_topic(topic)
+        self.logger.info(f"cleared {len(topics)} retained discovery topic(s)")
+        return len(topics)
 
     async def publish_discovery_schema_version(self, version: int | None = None) -> None:
         """Stamp the current schema version as a retained value.
