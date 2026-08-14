@@ -41,6 +41,26 @@ class MqttHelper:
     def dev_unique_id(self, device_id: str, entity: str = "") -> str:
         return "_".join([self.device_slug(device_id), re.sub(r"[^a-zA-Z0-9]+", "", entity)])
 
+    def obj_id(self, device_name: str, entity: str = "") -> str:
+        """Suggested object_id, pinning entity_id to the stable component key.
+
+        Without this HA derives entity_id from the *display name* at first discovery and then keeps
+        it forever, keyed on unique_id. Rename a component in a later release and its entity_id is
+        stranded describing the old name -- and because HA never reassigns it, a differently-named
+        component can end up owning it. That is unfixable from MQTT afterwards.
+
+        Deriving from `entity` (the component key, which does not change) instead of the display
+        name closes that off. Keeping `device_name` preserves HA's own readable convention, so this
+        reproduces the ids HA already generates in the common case and existing installs see no
+        churn -- their entity_ids are pinned by the registry regardless.
+        """
+        return self.ha_slugify(" ".join(filter(None, [device_name, entity])))
+
+    @staticmethod
+    def ha_slugify(text: str) -> str:
+        """Lowercase, non-alphanumerics to underscores, collapsed and trimmed -- as HA does."""
+        return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", text.lower())).strip("_")
+
     # Slug strings --------------------------------------------------------------------------------
 
     def device_slug(self, device_id: str) -> str:
