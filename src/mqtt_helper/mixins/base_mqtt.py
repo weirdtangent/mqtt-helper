@@ -258,6 +258,14 @@ class BaseMqttMixin:
         await self.publish_discovery_schema_version()
         self.logger.info("HA discovery reset complete")
 
+    def _mqtt_client_attached(self) -> bool:
+        """False once mqtt_on_disconnect has cleared the client — safe_publish drops silently then.
+
+        Anything we publish while detached is lost without raising, so this is the only way to tell
+        whether a publish we just made actually reached the broker.
+        """
+        return getattr(self.mqtt_helper, "client", None) is not None
+
     async def _maybe_reset_discovery(self, client: Client) -> bool:
         """Reset discovery if the retained schema version disagrees with ours. Returns True if it ran.
 
@@ -280,11 +288,18 @@ class BaseMqttMixin:
             # this is "unknown", not "changed" — resetting here would churn every healthy install
             # whose broker was rebuilt. Stamp the version so the next start has something to read.
             self.logger.info(f"no retained discovery schema version — recording {self.DISCOVERY_SCHEMA_VERSION} without resetting")
-            self._discovery_schema_checked = True
             await self.publish_discovery_schema_version()
+            # Same settled-state rule as the reset path below. If that stamp was silently dropped
+            # because we had already disconnected, the broker keeps no baseline for the life of the
+            # process — and a later version bump would then read "unknown" and decline to reset,
+            # silently forfeiting the self-heal. Leave it unsettled so the next connect restamps.
+            self._discovery_schema_checked = self._mqtt_client_attached()
+            if not self._discovery_schema_checked:
+                self.logger.warning("lost MQTT connection before the schema version stamp landed — will restamp on next connect")
             return False
 
         if stored == self.DISCOVERY_SCHEMA_VERSION:
+            # Nothing published, so there is nothing that could have been dropped.
             self._discovery_schema_checked = True
             return False
 
@@ -299,7 +314,7 @@ class BaseMqttMixin:
             self.logger.exception(f"discovery reset failed, will retry on next connect: {err!r}")
             return False
 
-        if getattr(self.mqtt_helper, "client", None) is None:
+        if not self._mqtt_client_attached():
             # We lost the broker partway through. safe_publish drops publishes silently when
             # disconnected, so the republish and the version stamp may never have gone out -- and
             # without an exception to catch. Leave the flag unset; the retained version still holds
