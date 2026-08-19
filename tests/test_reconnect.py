@@ -95,8 +95,7 @@ class TestMqttcCreateRetry:
         svc = FakeService()
         mock_client = MockClient.return_value
         # Fail 4 times, then succeed
-        mock_client.connect.side_effect = [
-            OSError("fail")] * 4 + [None]
+        mock_client.connect.side_effect = [OSError("fail")] * 4 + [None]
 
         await svc.mqttc_create()
 

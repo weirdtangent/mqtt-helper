@@ -2,8 +2,8 @@
 # Copyright (c) 2025 Jeff Culverhouse
 import asyncio
 import ssl
-
-from typing import Any, Callable, Coroutine, TypeVar
+from collections.abc import Callable, Coroutine
+from typing import Any, TypeVar
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import Client, ConnectFlags, DisconnectFlags
@@ -185,7 +185,7 @@ class BaseMqttMixin:
     # Discovery schema versioning -----------------------------------------------------------------
 
     def discovery_schema_version_topic(self) -> str:
-        return "/".join([self.mqtt_helper.service_slug, "service", "discovery_schema_version"])
+        return f"{self.mqtt_helper.service_slug}/service/discovery_schema_version"
 
     async def clear_discovery_topic(self, topic: str) -> None:
         """Delete a retained discovery topic (and the HA registry entry behind it).
@@ -216,7 +216,7 @@ class BaseMqttMixin:
         slug = self.mqtt_helper.service_slug
         # MQTT wildcards match a whole level, so `<slug>_+` is not expressible; subscribe broadly
         # and filter client-side.
-        wildcard = "/".join([self.discovery_prefix(), "+", "+", "config"])
+        wildcard = f"{self.discovery_prefix()}/+/+/config"
         found: set[str] = set()
 
         def _on_config(_client: Client, _userdata: Any, message: Any) -> None:
