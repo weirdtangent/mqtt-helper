@@ -12,6 +12,10 @@ jobs:
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest
+    # .python-version pins 3.14, and uv honours it over whatever
+    # setup-python put on PATH — be explicit so the two agree.
+    env:
+      UV_PYTHON: "3.13"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -45,6 +49,10 @@ jobs:
         # Matches requires-python = ">=3.12"; this library backs all four
         # *2mqtt services, so it has to hold across every version they run.
         python-version: ["3.12", "3.13", "3.14"]
+    # Without this uv resolves the interpreter from .python-version (3.14)
+    # and every matrix leg would silently run the same version.
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -62,4 +70,6 @@ jobs:
         run: uv sync --frozen --dev
 
       - name: Pytest
-        run: uv run pytest
+        run: |
+          uv run python -V
+          uv run pytest
