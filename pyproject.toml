@@ -23,8 +23,7 @@ include = ["mqtt_helper*"]
 
 [dependency-groups]
 dev = [
-    "black>=25.9.0",
-    "ruff>=0.14.2",
+    "ruff>=0.16.3",
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24",
     "pip-audit>=2.10.1",
@@ -68,26 +67,22 @@ exclude = [
     "venv",
 ]
 
-# Same as Black.
 line-length = 160
 indent-width = 4
 
 # Assume Python 3.13
 target-version = "py313"
 
-[tool.black]
-line-length = 160
-target-version = ["py313"]
-extend-exclude = '''
-/(
-  \.venv
- |\.ruff_cache
- |\.pytest_cache
- |node_modules
- |dist
- |build
-)/
-'''
+[tool.ruff.lint]
+# Ride ruff's defaults (same as the *2mqtt services) with a narrow ignore
+# list. These three fire throughout the reconnect/publish paths, where
+# swallowing a broad exception is deliberate: a helper must never take the
+# calling service down.
+ignore = [
+    "BLE001",  # blind `except Exception` — intentional at MQTT callback boundaries
+    "S110",    # try/except/pass — deliberate best-effort cleanup
+    "TRY401",  # redundant exception object in logging.exception()
+]
 
 [tool.pytest.ini_options]
 pythonpath = "src"

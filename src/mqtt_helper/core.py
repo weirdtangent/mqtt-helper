@@ -2,11 +2,12 @@
 # Copyright (c) 2025 Jeff Culverhouse
 import json
 import logging
-from paho.mqtt.client import PayloadType, Client
 import random
 import re
 import string
 from typing import Any, cast
+
+from paho.mqtt.client import Client, PayloadType
 
 
 class MqttHelper:
@@ -69,7 +70,7 @@ class MqttHelper:
     # Topic strings -------------------------------------------------------------------------------
 
     def svc_t(self, topic: str) -> str:
-        return "/".join([self.service_slug, "status", topic])
+        return f"{self.service_slug}/status/{topic}"
 
     def device_t(self, component_type: str, device_id: str, *parts: str) -> str:
         if device_id == "service":
@@ -105,7 +106,7 @@ class MqttHelper:
 
     def cmd_t(self, device_id: str, category: str = "cmd", *parts: str) -> str:
         if device_id == "service":
-            return "/".join([self.service_slug, "service", category, "set"])
+            return f"{self.service_slug}/service/{category}/set"
         return "/".join(
             [
                 self.service_slug,
