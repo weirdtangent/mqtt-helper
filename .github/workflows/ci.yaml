@@ -29,6 +29,12 @@ jobs:
         with:
           version: "latest"
 
+      # `uv sync --frozen` installs straight from the lockfile without
+      # validating it against pyproject.toml, so drift would silently test the
+      # old pinned versions. Fail loudly instead.
+      - name: Lockfile up to date
+        run: uv lock --check
+
       - name: Install project (dev)
         run: uv sync --frozen --dev
 
