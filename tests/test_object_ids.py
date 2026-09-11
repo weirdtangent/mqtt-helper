@@ -96,6 +96,21 @@ class TestApplyDefaultEntityIds:
 
         assert payload["cmps"]["motion"] == {"p": "binary_sensor", "name": "Motion"}
 
+    def test_reads_the_unabbreviated_platform_key(self, helper):
+        """HA's abbreviations are optional; blink2mqtt spells this `platform` throughout."""
+        payload = {"cmps": {"server": {"platform": "binary_sensor", "obj_id": "blink2mqtt_server"}}}
+
+        helper.apply_default_entity_ids(payload)
+
+        assert payload["cmps"]["server"]["def_ent_id"] == "binary_sensor.blink2mqtt_server"
+
+    def test_prefers_the_abbreviated_key_when_both_are_present(self, helper):
+        payload = {"cmps": {"server": {"p": "binary_sensor", "platform": "sensor", "obj_id": "svc_server"}}}
+
+        helper.apply_default_entity_ids(payload)
+
+        assert payload["cmps"]["server"]["def_ent_id"] == "binary_sensor.svc_server"
+
     def test_leaves_a_component_without_a_domain_alone(self, helper):
         """No `p` means no domain to build a full entity_id from — better untouched than wrong."""
         payload = {"cmps": {"motion": {"obj_id": "garage_cam_motion"}}}
