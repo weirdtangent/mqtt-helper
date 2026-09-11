@@ -43,7 +43,7 @@ class MqttHelper:
         return "_".join([self.device_slug(device_id), re.sub(r"[^a-zA-Z0-9]+", "", entity)])
 
     def obj_id(self, device_name: str, entity: str = "") -> str:
-        """Suggested object_id, pinning entity_id to the stable component key.
+        """Default entity_id slug, pinning entity_id to the stable component key.
 
         Without this HA derives entity_id from the *display name* at first discovery and then keeps
         it forever, keyed on unique_id. Rename a component in a later release and its entity_id is
@@ -54,8 +54,35 @@ class MqttHelper:
         name closes that off. Keeping `device_name` preserves HA's own readable convention, so this
         reproduces the ids HA already generates in the common case and existing installs see no
         churn -- their entity_ids are pinned by the registry regardless.
+
+        This is only the slug half. HA carries it in `default_entity_id`, which wants a full
+        entity_id -- see `apply_default_entity_ids`, which pairs this with each component's domain.
         """
         return self.ha_slugify(" ".join(filter(None, [device_name, entity])))
+
+    def apply_default_entity_ids(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Rewrite each component's `obj_id` into HA's `def_ent_id`, in place.
+
+        HA removed MQTT discovery's `object_id` in Core 2026.4 (deprecated with a warning back in
+        2025.10). It is not an alias and it is not tolerated-but-honoured: `obj_id` is no longer a
+        recognised abbreviation at all, so a payload still carrying one silently loses control of
+        its entity_ids and HA falls back to deriving them from display names -- exactly the failure
+        `obj_id` exists to prevent. The replacement, `default_entity_id` (abbreviated `def_ent_id`),
+        wants a *full* entity_id rather than a bare slug.
+
+        Doing the rewrite here, over a finished payload, keeps every builder writing the one
+        `obj_id` key it already writes: the domain is read from each component's own `p`, which is
+        the only place that knows it. A component with no `obj_id` or no `p` is left untouched.
+        """
+        for component in payload.get("cmps", {}).values():
+            if not isinstance(component, dict):
+                continue
+            object_id = component.pop("obj_id", None)
+            domain = component.get("p")
+            if not object_id or not domain:
+                continue
+            component["def_ent_id"] = f"{domain}.{object_id}"
+        return payload
 
     @staticmethod
     def ha_slugify(text: str) -> str:
