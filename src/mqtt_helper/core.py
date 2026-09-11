@@ -71,14 +71,17 @@ class MqttHelper:
         wants a *full* entity_id rather than a bare slug.
 
         Doing the rewrite here, over a finished payload, keeps every builder writing the one
-        `obj_id` key it already writes: the domain is read from each component's own `p`, which is
-        the only place that knows it. A component with no `obj_id` or no `p` is left untouched.
+        `obj_id` key it already writes: the domain is read from each component's own platform key,
+        which is the only place that knows it. HA's abbreviations are optional, so that key may be
+        spelled `p` or `platform` -- blink2mqtt writes the long form throughout while the other
+        services write the short one. A component with no `obj_id`, or no platform under either
+        spelling, is left untouched.
         """
         for component in payload.get("cmps", {}).values():
             if not isinstance(component, dict):
                 continue
             object_id = component.pop("obj_id", None)
-            domain = component.get("p")
+            domain = component.get("p") or component.get("platform")
             if not object_id or not domain:
                 continue
             component["def_ent_id"] = f"{domain}.{object_id}"
