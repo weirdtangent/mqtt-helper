@@ -54,7 +54,7 @@ jobs:
       matrix:
         # Matches requires-python = ">=3.12"; this library backs all four
         # *2mqtt services, so it has to hold across every version they run.
-        python-version: ["3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
     # Without this uv resolves the interpreter from .python-version (3.14)
     # and every matrix leg would silently run the same version.
     env:
